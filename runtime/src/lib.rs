@@ -608,6 +608,16 @@ impl pallet_resource_order::Config for Runtime{
 	type HealthCheckInterval = HealthCheckInterval;
 	type UnixTime = Timestamp;
 }
+/// Bank
+impl pallet_bank::Config for Runtime{
+	type Event = Event;
+	type Currency = Balances;
+	type BlockNumberToNumber = ConvertInto;
+	type NumberToBalance = ConvertInto;
+	type BalanceToNumber = ConvertInto;
+	type HealthCheckInterval = HealthCheckInterval;
+	type UnixTime = Timestamp;
+}
 
 impl pallet_provider::Config for Runtime {
 	type Event = Event;
@@ -660,7 +670,7 @@ construct_runtime!(
 		Provider: pallet_provider::{Pallet, Call, Storage, Event<T>},
 		Gateway: pallet_gateway::{Pallet, Call, Storage, Event<T>},
 		Market: pallet_market::{Pallet, Call, Storage, Event<T>},
-
+		Bank: pallet_bank::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
