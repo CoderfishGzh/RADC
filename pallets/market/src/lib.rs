@@ -34,7 +34,6 @@ const PALLET_ID: PalletId = PalletId(*b"ttchain!");
 const EXAMPLE_ID: LockIdentifier = *b"example ";
 
 
-
 #[frame_support::pallet]
 pub mod pallet {
     use frame_system::Origin;

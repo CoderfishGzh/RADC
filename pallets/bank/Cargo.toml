@@ -31,6 +31,18 @@ git = 'https://gitee.com/mohaijiang/substrate.git'
 tag = 'monthly-2021-07'
 version = '3.0.0'
 
+[dependencies.sp-application-crypto]
+default-features = false
+git = 'https://gitee.com/mohaijiang/substrate.git'
+tag = 'monthly-2021-07'
+version = '3.0.0'
+
+[dependencies.sp-io]
+default-features = false
+git = 'https://gitee.com/mohaijiang/substrate.git'
+tag = 'monthly-2021-07'
+version = '3.0.0'
+
 [features]
 default = ['std']
 runtime-benchmarks = ['frame-benchmarking']
@@ -44,7 +56,10 @@ std = [
     'log/std',
     'primitives/std',
     'sp-core/std',
+    'sp-application-crypto/std',
+    'sp-io/std',
 ]
+
 try-runtime = ['frame-support/try-runtime']
 [dependencies.codec]
 default-features = false

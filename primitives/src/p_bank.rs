@@ -40,3 +40,20 @@ impl<AccountId> UserInfo<AccountId> {
         true
     }
 }
+
+
+#[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+pub struct WithdrawInfo<AccountId> {
+    pub who: AccountId,
+    pub money: u128,
+}
+
+impl<AccountId> WithdrawInfo<AccountId> {
+    pub fn new(who: AccountId, money: u128) -> Self {
+        Self {
+            who,
+            money,
+        }
+    }
+}
