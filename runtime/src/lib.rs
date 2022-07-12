@@ -617,6 +617,7 @@ impl pallet_bank::Config for Runtime{
 	type BalanceToNumber = ConvertInto;
 	type HealthCheckInterval = HealthCheckInterval;
 	type UnixTime = Timestamp;
+	type BankRandomness = RandomnessCollectiveFlip;
 }
 
 impl pallet_provider::Config for Runtime {

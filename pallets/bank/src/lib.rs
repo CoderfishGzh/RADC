@@ -1,22 +1,24 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use frame_support::{dispatch::DispatchResult,
-                    pallet_prelude::*, PalletId, traits::{Currency, ExistenceRequirement},};
+                    pallet_prelude::*, PalletId,
+                    traits::{Currency, ExistenceRequirement, Randomness},};
 use frame_support::sp_runtime::app_crypto::TryFrom;
 use frame_support::sp_runtime::traits::{IdentifyAccount, Verify};
 use frame_support::sp_runtime::MultiSignature;
 use frame_support::sp_runtime::MultiSigner;
 use frame_support::sp_runtime::traits::Convert;
+
 use frame_support::traits::UnixTime;
 use frame_system::pallet_prelude::*;
-use sp_core::{Bytes, ecdsa};
+use sp_core::{Bytes};
 use sp_runtime::traits::AccountIdConversion;
 use sp_runtime::traits::Zero;
 use sp_std::convert::TryInto;
+use sp_std::vec::Vec;
 
-use sp_core::crypto::Pair;
-
-
-
+use sp_application_crypto::sr25519;
+use sp_application_crypto::sr25519::Public;
+use sp_application_crypto::sr25519::Signature;
 
 /// Edit this file to define custom logic or remove it if it is not needed.
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
@@ -37,16 +39,21 @@ mod benchmarking;
 
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-const PALLET_ID: PalletId = PalletId(*b"radcbank");
+const PALLET_ID1: PalletId = PalletId(*b"radcban1");
+const PALLET_ID2: PalletId = PalletId(*b"radcban2");
+const PALLET_ID3: PalletId = PalletId(*b"radcban3");
+const PALLET_ID4: PalletId = PalletId(*b"radcban4");
+const PALLET_ID5: PalletId = PalletId(*b"radcban5");
+
 const BALANCE_UNIT: Balance = 1_000_000_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use log::log;
-    // use serde::de::Unexpected::Str;
-    use sp_application_crypto::RuntimePublic;
 
-    // use sp_core::Pair;
+    // use serde::de::Unexpected::Str;
+    use frame_support::traits::Randomness;
+    use sp_core::Hasher;
+    use sp_runtime::traits::Hash;
     use super::*;
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
@@ -72,6 +79,8 @@ pub mod pallet {
 
         /// time
         type UnixTime: UnixTime;
+
+        type BankRandomness: Randomness<Self::Hash, Self::BlockNumber>;
     }
 
     #[pallet::pallet]
@@ -157,7 +166,10 @@ pub mod pallet {
     }
 
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+
+
+    }
 
     // Errors inform users that something went wrong.
     #[pallet::error]
@@ -178,10 +190,25 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
 
+        #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+        pub fn test_rand(
+            account_id: OriginFor<T>,
+        ) -> DispatchResult {
+
+            // create the random
+            let (output, block_num) = T::BankRandomness::random_seed();
+            let test = output.as_ref()[0];
+            let test = test.rem_euclid(5 as u8);
+
+
+            Ok(())
+        }
+
         // User Registration
         #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
         pub fn register_user_account(
             account_id: OriginFor<T>,
+            public_key: Vec<u8>,
         ) -> DispatchResult {
             // Signed?
             let user = ensure_signed(account_id)?;
@@ -189,7 +216,7 @@ pub mod pallet {
             let bank_account = UserInfo {
                 userid: user.clone(),
                 amount: 0,
-                user_key: 0,
+                user_key: public_key,
             };
 
             // Update the UserInfo in bank
@@ -207,12 +234,17 @@ pub mod pallet {
             authority_account: T::AccountId,
         ) -> DispatchResult {
             // get the account id
-            let who = ensure_signed(account_id)?;
+            let who = ensure_signed(account_id.clone())?;
+
+            // determine who has the bank account
+            if !BankAccounts::<T>::contains_key(who.clone()) {
+                Err(Error::<T>::NotExitBankAccount)?
+            }
 
             // check the account is already authority ?
             if AuthorizationList::<T>::contains_key(who.clone()) {
                 let list = AuthorizationList::<T>::get(who.clone()).unwrap();
-                if list.contains(&authority_account) {
+                if list.contains(&authority_account.clone()) {
                     Err(Error::<T>::AlreayAuthority)?
                 }
             }
@@ -221,10 +253,11 @@ pub mod pallet {
             if AuthorizationList::<T>::contains_key(who.clone()) {
                 // get the list
                 let mut list = AuthorizationList::<T>::get(who.clone()).unwrap();
-                list.push(authority_account);
+                list.push(authority_account.clone());
             } else {
                 // create the list
-                let list = vec![authority_account];
+                let mut list = Vec::new();
+                list.push(authority_account.clone());
                 AuthorizationList::<T>::insert(who.clone(), list);
             }
 
@@ -246,10 +279,12 @@ pub mod pallet {
                 return Err(Error::<T>::NotExitBankAccount.into());
             }
 
+            // create the rand
+
             // transfer accountid token to staking pot
             T::Currency::transfer(
                 &user.clone(),
-                &Self::bank_pool(),
+                &Self::bank_pool1(),
                 money,
                 ExistenceRequirement::KeepAlive,
             )?;
@@ -281,9 +316,11 @@ pub mod pallet {
                 return Err(Error::<T>::NotEnoughMoney.into());
             }
 
+            // rand  hash -> (1,2,3,4,5)
+
             // transfer accountid token to staking pot
             T::Currency::transfer(
-                &Self::bank_pool(),
+                &Self::bank_pool1(),
                 &who.clone(),
                 money,
                 ExistenceRequirement::KeepAlive,
@@ -309,11 +346,12 @@ pub mod pallet {
             );
 
             if WithdrawMoneyList::<T>::contains_key(source_id.clone()) {
-                let mut list = WithdrawMoneyList::<T>::get(source_id).unwrap();
+                let mut list = WithdrawMoneyList::<T>::get(source_id.clone()).unwrap();
                 list.push(withdraw_info);
                 WithdrawMoneyList::<T>::insert(source_id.clone(), list);
             } else {
-                let list = vec![withdraw_info];
+                let mut list = Vec::new();
+                list.push(withdraw_info);
                 WithdrawMoneyList::<T>::insert(source_id.clone(), list);
             }
 
@@ -335,7 +373,6 @@ pub mod pallet {
                 Err(Error::<T>::NotExitTransactionList)?
             }
 
-
             // get the apply list
             let list = WithdrawMoneyList::<T>::get(who.clone()).unwrap();
 
@@ -347,121 +384,116 @@ pub mod pallet {
                 Self::deposit_event(Event::TradeSuccess(account.clone(), T::NumberToBalance::convert(money)));
             }
 
-
-
             Ok(())
         }
 
-        /// Test signed
+
+        /// charge all the bank storage pot
         #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn reveal_puzzle (
+        pub fn charge_bank_pot (
             account_id: OriginFor<T>,
-            answer_hash: Vec<u8>,
-            answer_signed: Vec<u8>,
         ) -> DispatchResult {
+
             let who = ensure_signed(account_id)?;
-            // code the who to type: u8
-            let mut encode_data = who.encode();
 
-            // make the code_data len to be 33
-            encode_data.push(20);
-            // check the code_data len is 33 ?
-            assert_eq!(33, encode_data.len());
+            T::Currency::transfer(
+                &who.clone(),
+                &Self::bank_pool1(),
+                T::NumberToBalance::convert(300_000_000_000_000),
+                ExistenceRequirement::KeepAlive,
+            )?;
 
-            // let raw_data = encode_data.try_into();
-            // change the raw_data to [u8; 33]
-            let raw_data: Result<[u8;33], Vec<u8>> = encode_data.try_into();
-            let mut raw_data = raw_data.unwrap();
+            T::Currency::transfer(
+                &who.clone(),
+                &Self::bank_pool2(),
+                T::NumberToBalance::convert(300_000_000_000_000),
+                ExistenceRequirement::KeepAlive,
+            )?;
 
-            // crate the 25519 public key
-            // let public = sp_core::sr25519::Public::from_raw(raw_data);
+            T::Currency::transfer(
+                &who.clone(),
+                &Self::bank_pool3(),
+                T::NumberToBalance::convert(300_000_000_000_000),
+                ExistenceRequirement::KeepAlive,
+            )?;
 
-            // Crate the ecdsa public key
-            let public = ecdsa::Public::from_raw(raw_data);
+            T::Currency::transfer(
+                &who.clone(),
+                &Self::bank_pool4(),
+                T::NumberToBalance::convert(300_000_000_000_000),
+                ExistenceRequirement::KeepAlive,
+            )?;
 
-            // check the signed is valid
-            Self::check_signed_valid_ecdsa(
-                public,
-                answer_signed.as_slice(),
-                answer_hash.as_slice(),
-            );
-
-            Ok(())
-        }
-
-        /// test singed
-        /// * phrase 助记词
-        /// * password
-        #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn signed (
-            origin: OriginFor<T>,
-            phrase: sp_std::vec::Vec<u8>,
-            password: Vec<u8>,
-        ) -> DispatchResult {
-
-            let who = ensure_signed(origin)?;
-
-            // 1. 通过种子和密码生成私钥
-            let phrase_str = String::from_utf8(phrase).unwrap();
-
-            let (p, s) = Pair::from_phrase(
-                phrase_str.as_str(),
-                None,
-            ).unwrap();
-
-            // // 2. 使用私钥对msg签名
-            //
-            // let signature = pair.sign("1234".as_bytes());
-            //
-            // // 3. 获取公钥
-            // let account = pair.public().into_account();
-            // // 4. 判断是否能够使用  公钥进行签名
-            // if account.verify(&"1234".as_bytes(), &signature) {
-            //     Self::deposit_event(Event::Yes);
-            // } else {
-            //     Self::deposit_event(Event::No);
-            // }
+            T::Currency::transfer(
+                &who.clone(),
+                &Self::bank_pool5(),
+                T::NumberToBalance::convert(300_000_000_000_000),
+                ExistenceRequirement::KeepAlive,
+            )?;
 
             Ok(())
         }
+
+
     }
 }
 
 impl<T: Config> Pallet<T> {
     /// StoragePod
     /// The bank storage, used to storage the user money
-    pub fn bank_pool() -> T::AccountId { PALLET_ID.into_sub_account(b"bank") }
+    pub fn bank_pool1() -> T::AccountId { PALLET_ID1.into_sub_account(b"bank") }
+    pub fn bank_pool2() -> T::AccountId { PALLET_ID2.into_sub_account(b"bank") }
+    pub fn bank_pool3() -> T::AccountId { PALLET_ID3.into_sub_account(b"bank") }
+    pub fn bank_pool4() -> T::AccountId { PALLET_ID4.into_sub_account(b"bank") }
+    pub fn bank_pool5() -> T::AccountId { PALLET_ID5.into_sub_account(b"bank") }
+
+    /// create the rand
+    pub fn create_rand() -> u8 {
+        let (output, block_num) = T::BankRandomness::random_seed();
+        let rand = output.as_ref()[0].rem_euclid(5 as u8);
+        rand
+    }
+
+    /// use the rand to choose which account to transfer
+    pub fn rand_bank_account(rand: u8) -> T::AccountId {
+        match rand {
+            0 => {
+                Self::bank_pool1()
+            },
+            1 => {
+                Self::bank_pool2()
+            },
+            2 => {
+                Self::bank_pool3()
+            },
+            3 => {
+                Self::bank_pool4()
+            },
+            4 => {
+                Self::bank_pool5()
+            },
+
+            _ => {
+                Self::bank_pool5()
+            }
+        }
+    }
 
     pub fn transaction(who: T::AccountId, money: BalanceOf<T>) {
 
     }
 
-    // pub fn check_singed_valid(public_id: Public, signature: &[u8], msg: &[u8]) -> bool {
-    //     // get the signature
-    //     let signature = ecdsa::Signature::try_from(signature).unwrap();
-    //
-    //
-    //     let multi_signer = MultiSigner::from(public_id);
-    //
-    //
-    // }
+    fn check_signed_valid(public_id: Public, signature: &[u8], msg: &[u8]) -> bool {
+        let signature = Signature::try_from(signature);
+        let signature = signature.unwrap();
 
-    // test the ecdsa
-    // verity the ecdsa signed
-    pub fn check_signed_valid_ecdsa(publid_id: ecdsa::Public, signature: &[u8], msg: &[u8]) -> bool {
-
-        // signature
-        let signature = ecdsa::Signature::try_from(signature).unwrap();
-
-        // Determine tha signature is the type MultiSignature
-        let multi_signature = MultiSignature::from(signature);
-
-        // public key
-        let multi_signer = MultiSigner::from(publid_id);
-
-        // check the signed
-        multi_signature.verify(msg, &multi_signer.into_account())
+        let multi_sig = MultiSignature::from(signature); // OK
+        let multi_signer = MultiSigner::from(public_id);
+        multi_sig.verify(msg, &multi_signer.into_account())
     }
+
+
+
 }
 
 

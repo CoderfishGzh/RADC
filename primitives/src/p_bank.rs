@@ -20,7 +20,7 @@ pub struct UserInfo<AccountId> {
     /// All amounts in the bank of this User
     pub amount: u128,
     /// User key
-    pub user_key: u128,
+    pub user_key: Vec<u8>,
 }
 
 impl<AccountId> UserInfo<AccountId> {
