@@ -16,9 +16,7 @@ use sp_runtime::traits::Zero;
 use sp_std::convert::TryInto;
 use sp_std::vec::Vec;
 
-use sp_application_crypto::sr25519;
-use sp_application_crypto::sr25519::Public;
-use sp_application_crypto::sr25519::Signature;
+
 
 /// Edit this file to define custom logic or remove it if it is not needed.
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
@@ -53,7 +51,7 @@ pub mod pallet {
     // use serde::de::Unexpected::Str;
     use frame_support::traits::Randomness;
     use sp_core::Hasher;
-    use sp_runtime::traits::Hash;
+    use sp_runtime::traits::{Hash, Saturating};
     use super::*;
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
@@ -137,6 +135,16 @@ pub mod pallet {
     #[pallet::getter(fn encode_text)]
     pub(super) type EncodeText<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
+    /// Bank accout list
+    #[pallet::storage]
+    #[pallet::getter(fn bank_account_list)]
+    pub(super) type BankAccountList<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
+
+    /// trade info list
+    #[pallet::storage]
+    #[pallet::getter(fn trade_info_list)]
+    pub(super) type TradeInfoList<T: Config> = StorageValue<_, Vec<TradeInfo<T::AccountId>>, ValueQuery>;
+
     // Pallets use events to inform users when important changes are made.
     // https://substrate.dev/docs/en/knowledgebase/runtime/events
     #[pallet::event]
@@ -167,8 +175,13 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        // check every block
+        fn on_initialize(now: T::BlockNumber) -> Weight {
 
+            Self::transaction();
 
+            0
+        }
     }
 
     // Errors inform users that something went wrong.
@@ -182,6 +195,8 @@ pub mod pallet {
         AlreayAuthority,
 
         NotExitTransactionList,
+
+        AlreadyExitBankAccount,
     }
 
     // Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -190,21 +205,7 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
 
-        #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn test_rand(
-            account_id: OriginFor<T>,
-        ) -> DispatchResult {
-
-            // create the random
-            let (output, block_num) = T::BankRandomness::random_seed();
-            let test = output.as_ref()[0];
-            let test = test.rem_euclid(5 as u8);
-
-
-            Ok(())
-        }
-
-        // User Registration
+        /// User Registration
         #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
         pub fn register_user_account(
             account_id: OriginFor<T>,
@@ -212,15 +213,26 @@ pub mod pallet {
         ) -> DispatchResult {
             // Signed?
             let user = ensure_signed(account_id)?;
+
+            // Determine user already exit bankaccount
+            if BankAccounts::<T>::contains_key(user.clone()) {
+                Err(Error::<T>::AlreadyExitBankAccount)?
+            }
+
             // Crate the bank account
             let bank_account = UserInfo {
                 userid: user.clone(),
-                amount: 0,
+                amount: 0, // storage the money in the bank
                 user_key: public_key,
             };
 
             // Update the UserInfo in bank
             BankAccounts::<T>::insert(user.clone(), bank_account);
+
+            // Update the account list
+            let mut list = BankAccountList::<T>::get();
+            list.push(user.clone());
+            BankAccountList::<T>::set(list);
 
             Self::deposit_event(Event::RegisterSuccess(user));
             Ok(())
@@ -241,22 +253,18 @@ pub mod pallet {
                 Err(Error::<T>::NotExitBankAccount)?
             }
 
+            let mut list = Vec::new();
+
             // check the account is already authority ?
             if AuthorizationList::<T>::contains_key(who.clone()) {
-                let list = AuthorizationList::<T>::get(who.clone()).unwrap();
+                list = AuthorizationList::<T>::get(who.clone()).unwrap();
                 if list.contains(&authority_account.clone()) {
                     Err(Error::<T>::AlreayAuthority)?
+                } else {
+                    list.push(authority_account.clone());
+                    AuthorizationList::<T>::insert(who.clone(), list);
                 }
-            }
-
-            // create the map about auth_id and user
-            if AuthorizationList::<T>::contains_key(who.clone()) {
-                // get the list
-                let mut list = AuthorizationList::<T>::get(who.clone()).unwrap();
-                list.push(authority_account.clone());
             } else {
-                // create the list
-                let mut list = Vec::new();
                 list.push(authority_account.clone());
                 AuthorizationList::<T>::insert(who.clone(), list);
             }
@@ -276,15 +284,22 @@ pub mod pallet {
 
             // Determine the User has bank account
             if !BankAccounts::<T>::contains_key(user.clone()) {
-                return Err(Error::<T>::NotExitBankAccount.into());
+                Err(Error::<T>::NotExitBankAccount)?
             }
 
-            // create the rand
+            // get the bank account id
+            let bank_account = Self::rand_bank_account(Self::create_rand());
+
+            // check the user has enough money to storage
+            let user_free_balance = T::Currency::free_balance(&user.clone());
+            if user_free_balance.saturating_sub(money) < T::Currency::minimum_balance() {
+                Err(Error::<T>::NotEnoughMoney)?
+            }
 
             // transfer accountid token to staking pot
             T::Currency::transfer(
                 &user.clone(),
-                &Self::bank_pool1(),
+                &bank_account,
                 money,
                 ExistenceRequirement::KeepAlive,
             )?;
@@ -293,6 +308,7 @@ pub mod pallet {
             let mut bank_account_info = BankAccounts::<T>::get(user.clone()).unwrap();
             bank_account_info.charge_account(T::BalanceToNumber::convert(money));
             BankAccounts::<T>::insert(user.clone(), bank_account_info);
+
             // Send the event that user charge amount success
             Self::deposit_event(Event::ChargeAmountSuccess(user.clone(), T::BalanceToNumber::convert(money)));
             Ok(())
@@ -330,59 +346,28 @@ pub mod pallet {
             Ok(())
         }
 
-        /// apply for trading
+        // only root can use this func
         #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn apply_trade (
+        pub fn update_trade_info (
             account_id: OriginFor<T>,
-            source_id: T::AccountId,
+            source: T::AccountId,
+            dest: T::AccountId,
             money: BalanceOf<T>,
         ) -> DispatchResult {
 
-            let who = ensure_signed(account_id)?;
+            // ensure root
+            ensure_root(account_id)?;
 
-            let withdraw_info = WithdrawInfo::new(
-                who.clone(),
+            // create the trade info
+            let trade_info = TradeInfo::new(
+                source,
+                dest,
                 T::BalanceToNumber::convert(money),
             );
 
-            if WithdrawMoneyList::<T>::contains_key(source_id.clone()) {
-                let mut list = WithdrawMoneyList::<T>::get(source_id.clone()).unwrap();
-                list.push(withdraw_info);
-                WithdrawMoneyList::<T>::insert(source_id.clone(), list);
-            } else {
-                let mut list = Vec::new();
-                list.push(withdraw_info);
-                WithdrawMoneyList::<T>::insert(source_id.clone(), list);
-            }
-
-            Self::deposit_event(Event::ApplyTradeSuccess(who.clone(), source_id.clone(), money));
-            Ok(())
-        }
-
-
-        /// Approval of transactions
-        #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn approval_transactions (
-            account_id: OriginFor<T>,
-        ) -> DispatchResult {
-
-            let who = ensure_signed(account_id)?;
-
-            // Determine who has transactions list
-            if !WithdrawMoneyList::<T>::contains_key(who.clone()) {
-                Err(Error::<T>::NotExitTransactionList)?
-            }
-
-            // get the apply list
-            let list = WithdrawMoneyList::<T>::get(who.clone()).unwrap();
-
-            for info in list {
-                let account = info.who;
-                let money = info.money;
-
-                Self::transaction(account.clone(), T::NumberToBalance::convert(money));
-                Self::deposit_event(Event::TradeSuccess(account.clone(), T::NumberToBalance::convert(money)));
-            }
+            let mut info_list = TradeInfoList::<T>::get();
+            info_list.push(trade_info);
+            TradeInfoList::<T>::set(info_list);
 
             Ok(())
         }
@@ -479,20 +464,30 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn transaction(who: T::AccountId, money: BalanceOf<T>) {
+    /// 银行处理交易，每过50个区块执行一次
+    pub fn transaction() {
+        // 1. 获取交易列表
+        let trade_list = TradeInfoList::<T>::get();
+        if trade_list.len().is_zero() {
+            return;
+        }
 
+        for trade_info in trade_list {
+            // 2. 获取银行的账号作为source
+            let source = Self::rand_bank_account(Self::create_rand());
+            // 3. 进行交易
+            T::Currency::transfer(
+                &source,
+                &trade_info.clone().dest,
+                T::NumberToBalance::convert(trade_info.amount),
+                ExistenceRequirement::KeepAlive,
+            );
+            // 4. 对账号里面的存款进行更新
+            let mut bank_info = BankAccounts::<T>::get(trade_info.clone().source).unwrap();
+            bank_info.withdraw_amount(trade_info.clone().amount);
+            BankAccounts::<T>::insert(trade_info.clone().source, bank_info);
+        }
     }
-
-    fn check_signed_valid(public_id: Public, signature: &[u8], msg: &[u8]) -> bool {
-        let signature = Signature::try_from(signature);
-        let signature = signature.unwrap();
-
-        let multi_sig = MultiSignature::from(signature); // OK
-        let multi_signer = MultiSigner::from(public_id);
-        multi_sig.verify(msg, &multi_signer.into_account())
-    }
-
-
 
 }
 

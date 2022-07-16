@@ -41,6 +41,29 @@ impl<AccountId> UserInfo<AccountId> {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+pub struct TradeInfo<AccountId> {
+    // source
+    pub source: AccountId,
+
+    // dest
+    pub dest: AccountId,
+
+    // amount
+    pub amount: u128,
+}
+
+impl<AccountId> TradeInfo<AccountId> {
+    pub fn new(source: AccountId, dest: AccountId, amount: u128) -> Self {
+        Self {
+            source,
+            dest,
+            amount,
+        }
+    }
+}
+
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
